@@ -1,0 +1,41 @@
+* {
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+.App {
+  padding: 50px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 20px;
+  height: 100vh;
+}
+
+.darkTheme {
+  background-color: black;
+  color: aliceblue;
+}
+
+.lightTheme {
+  background-color: aliceblue;
+  color: black;
+}
+
+button {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.darkBtn {
+  background-color: black;
+  color: aliceblue;
+}
+.lightBtn {
+  background-color: aliceblue;
+  color: black;
+}
