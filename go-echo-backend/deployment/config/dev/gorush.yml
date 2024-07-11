@@ -1,0 +1,75 @@
+core:
+  enabled: true
+  address: ''
+  shutdown_timeout: 30
+  port: '8088'
+  max_notification: 100
+  worker_num: 3
+  queue_num: 1024
+  mode: release
+  sync: false
+  ssl: false
+  cert_path: ''
+  key_path: ''
+  cert_base64: ''
+  key_base64: ''
+  http_proxy: ''
+  feedback_hook_url: 'https://dev-api.joininflow.io/api/v1/callback/push_notification'
+  feedback_timeout: 10
+  pid:
+    enabled: false
+    path: gorush.pid
+    override: true
+  auto_tls:
+    enabled: false
+    folder: .cache
+    host: ''
+
+api:
+  push_uri: /api/push
+  stat_go_uri: /api/stat/go
+  stat_app_uri: /api/stat/app
+  config_uri: /api/config
+  sys_stat_uri: /sys/stats
+  metric_uri: /metrics
+  health_uri: /healthz
+
+android:
+  enabled: true
+  apiKey: AAAAHePetBU:APA91bEIEc7W0PnITGx3gSxgVqDUF-jk0Vd0VbiWr7Wf7eclAwQrAoe8UpmiK6C0N3rVYmuM4FQ3y2HKeQ6bZXT_OK2lzAb7Nf0OFp2_dz3FrD_E2jyzAEBj-FoTuZwWPs17cxSBLksI
+  max_retry: 3
+
+huawei:
+  enabled: false
+  apikey: ''
+  appid: ''
+  max_retry: 0
+
+ios:
+  enabled: false
+  key_path: ''
+  key_base64: ''
+  key_type: p8
+  password: ''
+  production: true
+  max_retry: 3
+  key_id: ''
+  team_id: ''
+
+log:
+  format: string
+  access_log: stdout
+  access_level: debug
+  error_log: stderr
+  error_level: error
+  hide_token: false
+
+stat:
+  engine: "memory"
+
+queue:
+  engine: local 
+
+grpc:
+  enabled: true
+  port: '9000'

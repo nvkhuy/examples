@@ -1,0 +1,2420 @@
+version: '3'
+
+output: 
+  group:
+    begin: '========================================START TASK {{.TASK}}========================================'
+    end: '========================================END TASK {{.TASK}}========================================'
+
+vars:
+  DEPLOYMENT_DIR: "{{.USER_WORKING_DIR}}/deployment"
+  DEPLOYMENT_CONFIG_DIR: "{{.DEPLOYMENT_DIR}}/config"
+  DEPLOYMENT_TF_DIR: "{{.DEPLOYMENT_DIR}}/tf"
+  TEMP_DIR: "{{.USER_WORKING_DIR}}/tmpdir"
+  VALID_CONTAINER_NAMES: backend,consumer,crawler
+
+tasks:
+  env:print:
+    summary: |
+      Print env
+      For ex: 
+        task env:print ENV=dev
+        task env:print ENV=dev KEY="APP_NAME"
+    desc: Print env
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json'
+      KEY: '{{.KEY | default ""}}'
+    cmds:
+      - |
+       {{if eq .KEY ""}}
+       jq -r '{{.KEY}}' {{.ENV_FILE}}
+       {{else}}
+       echo {{.KEY}}=$(jq -r '.{{.KEY}}' {{.ENV_FILE}})
+       {{end}}
+    requires:
+      vars:
+        - ENV
+    silent: false
+    preconditions:
+      - sh: jq --version
+        msg: "jc CLI is not installed https://github.com/jqlang/jq"
+
+  aws:config:
+    summary: |
+      Configure AWS profile
+      For ex: 
+        task aws:config ENV=dev
+    desc: Configure AWS profile
+    deps:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            AWS_ACCESS_KEY_ID={{.AWS_ACCESS_KEY_ID}}
+            AWS_SECRET_ACCESS_KEY={{.AWS_SECRET_ACCESS_KEY}}
+    cmds:
+      - echo 'Config AWS profile {{.AWS_PROFILE}} {{.AWS_REGION}}'
+      - aws configure set aws_access_key_id {{.AWS_ACCESS_KEY_ID }} --profile {{.AWS_PROFILE }} --region {{.AWS_REGION}}
+      - aws configure set aws_secret_access_key {{.AWS_SECRET_ACCESS_KEY }} --profile {{.AWS_PROFILE }} --region {{.AWS_REGION}}
+    silent: true
+    requires:
+      vars: 
+        - AWS_PROFILE
+        - AWS_ACCESS_KEY_ID
+        - AWS_SECRET_ACCESS_KEY
+        - AWS_REGION
+    preconditions:
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+
+  aws:secretsmanager:get:
+    summary: |
+      Get enviroment json file from AWS secret managers
+      For ex: 
+        task aws:secretsmanager:get ENV=dev AWS_PROFILE=inflow2023 AWS_REGION=ap-southeast-1 SECRET_ID=dev/env
+    desc: Get enviroment json file from AWS secret managers
+    vars:
+      JSON_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TEMP_JSON_FILE: "{{.TEMP_DIR}}/{{.ENV}}.env.json"
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            SECRET_ID={{.SECRET_ID}}
+            JSON_FILE={{.JSON_FILE}}
+      - mkdir -p {{.TEMP_DIR}}/
+      - defer: rm -rf {{.TEMP_JSON_FILE}}
+      - |
+        aws secretsmanager --profile {{.AWS_PROFILE}} --region {{.AWS_REGION}} \
+        get-secret-value --secret-id {{.SECRET_ID}} | \
+        jq -S '.SecretString | fromjson' > {{.TEMP_JSON_FILE}}
+      - task: confirm
+        vars:
+          MESSAGE: |
+            This file {{.JSON_FILE}} will be overwrote by {{.TEMP_JSON_FILE}}
+      - cp {{.TEMP_JSON_FILE}} {{.JSON_FILE}}
+    requires:
+      vars:
+        - ENV
+        - AWS_PROFILE
+        - AWS_REGION
+        - SECRET_ID
+
+  aws:secretsmanager:create:
+    summary: |
+      Create AWS secret managers from enviroment json file
+      For ex: 
+        task aws:secretsmanager:create ENV=dev AWS_PROFILE=inflow2023 AWS_REGION=ap-southeast-1 SECRET_ID=dev/env
+    desc: Create AWS secret managers from enviroment json file
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      SECRET_ID: '{{.SECRET_ID}}'
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            SECRET_ID={{.SECRET_ID}}
+      - |
+        aws secretsmanager create-secret --name {{.SECRET_ID}} \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --secret-string file://{{.SECRET_FILE}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SECRET_ID
+
+  aws:secretsmanager:update:
+    summary: |
+      Update AWS secret managers from enviroment json file
+      For ex: 
+        task aws:secretsmanager:update ENV=dev AWS_PROFILE=inflow2023 AWS_REGION=ap-southeast-1 SECRET_ID=dev/env
+    desc: Update AWS secret managers from enviroment json file
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TEMP_JSON_FILE: "{{.TEMP_DIR}}/{{.ENV}}.env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - defer: rm -rf {{.TEMP_DIR}}/changes
+      - |
+        aws secretsmanager get-secret-value --secret-id {{.SECRET_ID}} \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} | \
+        jq -S '.SecretString | fromjson' > {{.TEMP_JSON_FILE}}
+      - cmd: |
+          jd -set {{.TEMP_JSON_FILE}} {{.SECRET_FILE}} > {{.TEMP_DIR}}/changes
+          [[ -f {{.TEMP_DIR}}/changes && ! -s {{.TEMP_DIR}}/changes ]] && echo "No changes" > {{.TEMP_DIR}}/changes
+        ignore_error: true
+      - task: confirm
+        vars:
+          CONTENT:
+            sh: cat {{.TEMP_DIR}}/changes
+          MESSAGE: |
+            Please double check these fields before updating
+            Your existing env {{.TEMP_JSON_FILE}}
+            Your updated env {{.SECRET_FILE}}
+      - |
+        aws secretsmanager update-secret --secret-id {{.SECRET_ID}} \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --secret-string file://{{.SECRET_FILE}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: jd --version >/dev/null 2>&1
+        msg: "jd CLI is not installed https://github.com/josephburnett/jd#command-line-usage"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SECRET_ID
+
+  aws:ssm:get:
+    summary: |
+      Get AWS SSM param
+      For ex: 
+        task aws:ssm:get ENV=dev PARAM_NAME=/service/inflow-dev-opensearch/MASTER_USER
+    desc: Get AWS SSM param
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            PARAM_NAME={{.PARAM_NAME}}
+      - |
+        aws ssm get-parameter \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}}  \
+        --name "{{.PARAM_NAME}}" \
+        --with-decryption \
+        --output json \
+        --query Parameter.Value
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - PARAM_NAME
+
+  aws:ssm:get:opensearch:
+    summary: |
+      Get AWS OpenSearch Admin credentials
+      For ex: 
+        task aws:ssm:get:opensearch ENV=dev
+    desc: Get AWS OpenSearch Admin credentials
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+    cmds:
+      - task: aws:ssm:get
+        vars:
+          PARAM_NAME: "/service/{{.APP_NAME}}-{{.ENV}}-opensearch/MASTER_USER"
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        
+  aws:ecr:create:
+    summary: |
+      Create AWS ECR repo
+      For ex: 
+        task aws:ecr:create ENV=dev REPO_NAME=inflow-dev-backend
+    desc: Create AWS ECR repo
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            REPO_NAME={{.REPO_NAME}}
+      - |
+        aws ecr create-repository \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --repository-name {{.REPO_NAME}} \
+        --image-scanning-configuration scanOnPush=true \
+        --image-tag-mutability MUTABLE
+          
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - REPO_NAME
+
+  aws:ecr:login:
+    summary: |
+      Create AWS ECR login
+      For ex: 
+        task aws:ecr:login ENV=dev
+    desc: Create AWS ECR login
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      AWS_ACCOUNT_ID:
+        sh: aws --profile {{.AWS_PROFILE}} sts get-caller-identity --query "Account" --output text
+      AWS_ECR_REPO: "{{.AWS_ACCOUNT_ID}}.dkr.ecr.{{.AWS_REGION}}.amazonaws.com"
+    silent: false
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            AWS_ACCOUNT_ID={{.AWS_ACCOUNT_ID}}
+            AWS_ECR_REPO={{.AWS_ECR_REPO}}
+      - |
+        aws ecr get-login-password \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        | docker login \
+        --username AWS \
+        --password-stdin {{.AWS_ECR_REPO}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  aws:s3:create:
+    summary: |
+      Create AWS S3 bucket
+      For ex: 
+        task aws:s3:create ENV=dev BUCKET_NAME=inflow-dev-storage
+    desc: Create AWS S3 bucket
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            REPO_NAME={{.REPO_NAME}}
+      - |
+        {{if eq .AWS_REGION "ap-southeast-1"}}
+        aws s3api create-bucket \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --create-bucket-configuration LocationConstraint={{.AWS_REGION}} \
+        --bucket {{.BUCKET_NAME}}
+        {{else}}
+        aws s3api create-bucket \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --bucket {{.BUCKET_NAME}}
+        {{end}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - BUCKET_NAME
+
+  aws:ecs:update:
+    summary: |
+      Update AWS ECS service, force new deployment
+      For ex: 
+        task aws:ecs:update ENV=dev CONTAINER_NAME=backend
+    desc: Update AWS ECS service, force new deployment
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_ECS_CLUSTER: "{{.APP_NAME}}-{{.ENV}}-cluster"
+      AWS_ECS_SERVICE: "{{.APP_NAME}}-{{.ENV}}-{{.CONTAINER_NAME}}"
+    silent: false
+    cmds:
+      - task: check-container-name
+        vars:
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            AWS_ECS_CLUSTER={{.AWS_ECS_CLUSTER}}
+            AWS_ECS_SERVICE={{.AWS_ECS_SERVICE}}
+      - |
+        aws ecs update-service \
+        --profile "{{.AWS_PROFILE}}" \
+        --region "{{.AWS_REGION}}" \
+        --cluster "{{.AWS_ECS_CLUSTER}}" --service "{{.AWS_ECS_SERVICE}}" --force-new-deployment
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - CONTAINER_NAME
+
+  aws:dynamodb:create:
+    summary: |
+      Create AWS dynamodb table for Terraform look state
+      For ex: 
+        task aws:dynamodb:create ENV=dev TABLE_NAME=inflow2023-dev-terraform-state-lock-table
+    desc: Create AWS dynamodb table for Terraform look state
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            TABLE_NAME={{.TABLE_NAME}}
+      - |
+        aws dynamodb create-table \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --table-name {{.TABLE_NAME}} \
+        --attribute-definitions AttributeName=LockID,AttributeType=S \
+        --key-schema AttributeName=LockID,KeyType=HASH \
+        --provisioned-throughput ReadCapacityUnits=1,WriteCapacityUnits=1
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - TABLE_NAME
+
+  aws:rds:restore_to_local:
+    summary: |
+      Restore AWS RDS postgresSQL to local
+      For ex: 
+        task aws:rds:restore_to_local ENV=dev
+        task aws:rds:restore_to_local ENV=prod
+    desc: Restore RDS to local
+    vars:
+      LOCAL_SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/local/env.json"
+      LOCAL_DB_HOST:
+        sh: jq -r '.DB_HOST' {{.LOCAL_SECRET_FILE}}
+      LOCAL_DB_NAME:
+        sh: jq -r '.DB_NAME' {{.LOCAL_SECRET_FILE}}
+      LOCAL_DB_PASSWORD:
+        sh: jq -r '.DB_PASSWORD' {{.LOCAL_SECRET_FILE}}
+      LOCAL_DB_PORT:
+        sh: jq -r '.DB_PORT' {{.LOCAL_SECRET_FILE}}
+      LOCAL_DB_USER:
+        sh: jq -r '.DB_USER' {{.LOCAL_SECRET_FILE}}
+      LOCAL_DB_SSL_MODE:
+        sh: jq -r '.DB_SSL_MODE' {{.LOCAL_SECRET_FILE}}
+      LOCAL_PG_HOST: "{{.LOCAL_PG_HOST | default .LOCAL_DB_HOST}}"
+      LOCAL_PG_PORT: "{{.LOCAL_PG_PORT | default .LOCAL_DB_PORT}}"
+      LOCAL_PG_USER: "{{.LOCAL_PG_USER | default .LOCAL_DB_USER}}"
+      LOCAL_PG_PASSWORD: "{{.LOCAL_PG_PASSWORD | default .LOCAL_DB_PASSWORD}}"
+      LOCAL_PG_NAME: "{{.LOCAL_PG_NAME | default .LOCAL_DB_NAME}}"
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE:
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION:
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      DB_HOST:
+        sh: jq -r '.DB_HOST' {{.SECRET_FILE}}
+      DB_NAME:
+        sh: jq -r '.DB_NAME' {{.SECRET_FILE}}
+      DB_PASSWORD:
+        sh: jq -r '.DB_PASSWORD' {{.SECRET_FILE}}
+      DB_PORT:
+        sh: jq -r '.DB_PORT' {{.SECRET_FILE}}
+      DB_USER:
+        sh: jq -r '.DB_USER' {{.SECRET_FILE}}
+      DB_SSL_MODE:
+        sh: jq -r '.DB_SSL_MODE' {{.SECRET_FILE}}
+      PG_HOST: "{{.PG_HOST | default .DB_HOST}}"
+      PG_PORT: "{{.PG_PORT | default .DB_PORT}}"
+      PG_USER: "{{.PG_USER | default .DB_USER}}"
+      PG_PASSWORD: "{{.PG_PASSWORD | default .DB_PASSWORD}}"
+      PG_NAME: "{{.PG_NAME | default .DB_NAME}}"
+      NOW:
+        sh: echo {{now | date "2006-01-02_15-04-05"}}
+      BACKUP_DIR: db_backup/{{.ENV}}
+      BACKUP_FILE: "{{.BACKUP_DIR}}/{{.PG_NAME}}_latest.sql"
+    silent: false
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            LOCAL_PG_HOST={{.LOCAL_PG_HOST}}
+            LOCAL_PG_PORT={{.LOCAL_PG_PORT}}
+            LOCAL_PG_USER={{.LOCAL_PG_USER}}
+            LOCAL_PG_PASSWORD={{.LOCAL_PG_PASSWORD}}
+            LOCAL_PG_NAME={{.LOCAL_PG_NAME}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            PG_HOST={{.PG_HOST}}
+            PG_PORT={{.PG_PORT}}
+            PG_USER={{.PG_USER}}
+            PG_PASSWORD={{.PG_PASSWORD}}
+            PG_NAME={{.PG_NAME}}
+            BACKUP_FILE={{.BACKUP_FILE}}
+      - |
+        mkdir -p {{.BACKUP_DIR}}
+        touch {{.BACKUP_FILE}}
+        PGPASSWORD='{{.PG_PASSWORD}}' pg_dump --verbose -h {{.PG_HOST}} -p {{.PG_PORT}} -U {{.PG_USER}} -f "{{.BACKUP_FILE}}" "{{.PG_NAME}}" -Fc
+        PGPASSWORD='{{.LOCAL_PG_PASSWORD}}' pg_restore --verbose --clean -h {{.LOCAL_PG_HOST}} -p {{.LOCAL_PG_PORT}} -U {{.LOCAL_PG_USER}} -d {{.LOCAL_PG_NAME}} {{.BACKUP_FILE}}
+        rm -rf {{.BACKUP_FILE}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  aws:rds:backup:
+    summary: |
+      Backup AWS RDS postgresSQL
+      For ex: 
+        task aws:rds:backup ENV=dev
+    desc: Backup AWS RDS postgresSQL
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      DB_HOST:
+        sh: jq -r '.DB_HOST' {{.SECRET_FILE}}
+      DB_NAME:
+        sh: jq -r '.DB_NAME' {{.SECRET_FILE}}
+      DB_PASSWORD:
+        sh: jq -r '.DB_PASSWORD' {{.SECRET_FILE}}
+      DB_PORT:
+        sh: jq -r '.DB_PORT' {{.SECRET_FILE}}
+      DB_USER:
+        sh: jq -r '.DB_USER' {{.SECRET_FILE}}
+      DB_SSL_MODE:
+        sh: jq -r '.DB_SSL_MODE' {{.SECRET_FILE}}
+      PG_HOST: "{{.PG_HOST | default .DB_HOST}}"
+      PG_PORT: "{{.PG_PORT | default .DB_PORT}}"
+      PG_USER: "{{.PG_USER | default .DB_USER}}"
+      PG_PASSWORD: "{{.PG_PASSWORD | default .DB_PASSWORD}}"
+      PG_NAME: "{{.PG_NAME | default .DB_NAME}}"
+      NOW:
+        sh: echo {{now | date "2006-01-02_15-04-05"}}
+      BACKUP_DIR: db_backup/{{.ENV}}
+      BACKUP_FILE: "{{.BACKUP_DIR}}/{{.PG_NAME}}_{{.NOW}}.sql"
+    silent: false
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            PG_HOST={{.PG_HOST}}
+            PG_PORT={{.PG_PORT}}
+            PG_USER={{.PG_USER}}
+            PG_PASSWORD={{.PG_PASSWORD}}
+            PG_NAME={{.PG_NAME}}
+            BACKUP_FILE={{.BACKUP_FILE}}
+      - |
+        mkdir -p {{.BACKUP_DIR}}
+        touch {{.BACKUP_FILE}}
+        PGPASSWORD='{{.PG_PASSWORD}}' pg_dump --verbose -h {{.PG_HOST}} -p {{.PG_PORT}} -U {{.PG_USER}} -f "{{.BACKUP_FILE}}" "{{.PG_NAME}}" -Fc
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  sam:build:
+    summary: |
+      Build SAM
+      For ex: 
+        task sam:build ENV=dev
+    desc: Deploy SAM
+    vars:
+      ENV: dev
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    silent: false
+    interactive: true
+    cmds:
+      - |
+        cd lambda && \
+        sam build --profile {{.AWS_PROFILE}} --region {{.AWS_REGION}} --parallel --config-file samconfig.{{.ENV}}.toml {{.CLI_ARGS}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  sam:deploy:
+    summary: |
+      Deploy SAM
+      For ex: 
+        task sam:deploy ENV=dev
+    desc: Deploy SAM
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    silent: false
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+      - task: sam:build
+        vars:
+          ENV: "{{.ENV}}"
+      - |
+        cd lambda && \
+        sam deploy --profile {{.AWS_PROFILE}} --region {{.AWS_REGION}} --config-file samconfig.{{.ENV}}.toml {{.CLI_ARGS}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  pg:restore:
+    summary: |
+      Restore postgresSQL datanase to your local postgres
+      For ex: 
+        task pg:restore ENV=dev
+    desc: Restore postgresSQL datanase to your local postgres
+    silent: false
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            PG_HOST={{.PG_HOST}}
+            PG_PORT={{.PG_PORT}}
+            PG_USER={{.PG_USER}}
+            PG_PASSWORD={{.PG_PASSWORD}}
+            PG_NAME={{.PG_NAME}}
+            FILE={{.FILE}}
+      - |
+        pg_restore -U {{.PG_USER}} \
+        --no-privileges \
+        --no-owner \
+        --verbose \
+        --clean \
+        -d {{.PG_NAME}} \
+        -h {{.PG_HOST}} \
+        -p {{.PG_PORT}} \
+        -U {{.PG_USER}} \
+        -d {{.PG_NAME}} < $(file)
+    preconditions:
+      - sh: pg_restore --version
+        msg: "jq CLI is not installed https://www.postgresql.org/docs/current/app-pgrestore.html"
+      - sh: test -f {{.FILE}}
+        msg: "{{.FILE}} is not found"
+    requires:
+      vars:
+        - FILE
+        - PG_HOST
+        - PG_PORT
+        - PG_USER
+        - PG_PASSWORD
+        - PG_NAME
+
+  tf:init:
+    summary: |
+      Init Terraform remote backend and dependencies
+      For ex: 
+        task tf:init ENV=dev
+        task tf:init ENV=dev -- -auto-approve
+    desc: Init Terraform remote backend and dependencies
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_STATE: '{{.ENV}}.tfstate'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+      AWS_PROFILE:
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION:
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      STATE_BUCKET:
+        sh: jq -r '.TF_VAR_state_bucket' {{.SECRET_FILE}}
+      DYNAMODB_TABLE:
+        sh: jq -r '.TF_VAR_state_lock_table' {{.SECRET_FILE}}
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            STATE_BUCKET={{.STATE_BUCKET}}
+            DYNAMODB_TABLE={{.DYNAMODB_TABLE}}
+            TF_STATE={{.TF_STATE}}
+            TF_DIR={{.TF_DIR}}
+      - |
+        cd {{.TF_DIR}} && terraform init  \
+        -backend-config "profile={{.AWS_PROFILE}}" \
+        -backend-config "region={{.AWS_REGION}}" \
+        -backend-config "bucket={{.STATE_BUCKET}}" \
+        -backend-config "dynamodb_table={{.DYNAMODB_TABLE}}" \
+        -backend-config "key={{.TF_STATE}}" {{.CLI_ARGS}}
+    requires:
+      vars:
+        - ENV
+    preconditions:
+      - sh: terraform -version >/dev/null 2>&1
+        msg: "Terraform CLI is not installed"
+
+  app:lambda:watch:
+    summary: |
+      Watch Lambda logs from AWS Cloudwatch
+      task app:lambda:watch ENV=dev SERVICE=rod
+    desc: Watch Lambda logs from AWS Cloudwatch
+    silent: false
+    interactive: true
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      LOG_GROUP: "/aws/lambda/{{.APP_NAME}}-{{.ENV}}-{{.SERVICE}}"
+    cmds:
+      - aws --profile {{.AWS_PROFILE}} --region {{.AWS_REGION}} logs tail {{.LOG_GROUP}} --follow {{.CLI_ARGS}}
+    preconditions:
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SERVICE
+
+  app:lambda:local:
+    summary: |
+      Watch Lambda logs from AWS Cloudwatch
+      app:lambda:local ENV=dev SERVICE=rod
+    desc: Watch Lambda logs from AWS Cloudwatch
+    silent: false
+    interactive: true
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      AWS_ACCOUNT_ID:
+        sh: aws --profile {{.AWS_PROFILE}} sts get-caller-identity --query "Account" --output text
+      AWS_ECR_REPO: "{{.AWS_ACCOUNT_ID}}.dkr.ecr.{{.AWS_REGION}}.amazonaws.com"
+      IMAGE_ECR_REPO: "{{.AWS_ECR_REPO}}/inflow-{{.ENV}}-{{.SERVICE}}:latest"
+    cmds: ## https://docs.aws.amazon.com/lambda/latest/dg/go-image.html#go-alt-test
+      - |
+        docker run --platform linux/amd64 -v ~/.aws-lambda-rie:/aws-lambda -p 9000:8080 \
+        --entrypoint /aws-lambda/aws-lambda-rie "{{.IMAGE_ECR_REPO}}" /main
+    preconditions:
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SERVICE
+
+  app:lambda:cleanup:
+    summary: |
+      Cleanup old lambda functions
+      For ex: 
+        task app:lambda:cleanup
+    desc: Cleanup old lambda functions
+    vars:
+      PYTHON_FILE: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/clean_old_lambda_versions.py'
+    silent: false
+    interactive: true
+    cmd: |
+        if command -v python &> /dev/null
+        then
+          python {{.PYTHON_FILE}}
+        else
+          python3 {{.PYTHON_FILE}}
+        fi
+    preconditions:
+      - sh: terraform -version
+        msg: "Terraform CLI is not installed"
+  
+  app:lambda:rod:test:
+    summary: |
+      Test generate PDF
+      For ex: 
+        task app:lambda:rod:test ENV=dev IS_RFQ=1
+    desc: Test generate PDF
+    deps:
+      - task: export-lambda-rod-env
+        vars:
+          ENV: "{{.ENV}}"
+    vars:
+      FUNC_FOLDER: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/rod'
+      IS_BULK: "{{.IS_BULK | default 0}}"
+      IS_RFQ: "{{.IS_RFQ | default 0}}"
+    silent: false
+    interactive: true
+    cmd: |
+        cd {{.FUNC_FOLDER}} && IS_TEST_BULK={{.IS_BULK}} IS_TEST_RFQ={{.IS_RFQ}} go run *.go
+    preconditions:
+      - sh: terraform -version
+        msg: "Terraform CLI is not installed"
+        
+  app:lambda:deploy:
+    summary: |
+      Deploy lambda functions
+      For ex: 
+        task app:lambda:deploy ENV=dev FUNCTION=resize
+    desc: Deploy lambda functions
+    vars:
+      TARGET: "module.lambda_{{.FUNCTION}}"
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      DATASTORE_BUCKET: 
+        sh: jq -r '.TF_VAR_datastore_bucket' {{.SECRET_FILE}}
+      MODEL_FILE: 'ai_models/train-apr-6/best.onnx'
+      MODEL_DEST_FILE: "{{.DEPLOYMENT_TF_DIR}}/modules/lambda/{{.FUNCTION}}"
+    deps:
+      - task: export-lambda-{{.FUNCTION}}-env
+        vars:
+          ENV: "{{.ENV}}"
+    cmds:
+      - |
+        if [[ "{{.FUNCTION}}" == "classify" ]]; then
+            aws s3 --profile {{.AWS_PROFILE}} cp s3://{{.DATASTORE_BUCKET}}/{{.MODEL_FILE}} {{.MODEL_DEST_FILE}}
+          fi
+        task tf:apply ENV={{.ENV}} -- -target={{.TARGET}}
+        task app:lambda:cleanup
+    silent: false
+    interactive: true
+    requires:
+      vars:
+        - ENV
+        - FUNCTION
+    preconditions:
+      - sh: terraform -version
+        msg: "Terraform CLI is not installed"
+
+  tf:apply:
+    summary: |
+      Apply Terraform state
+      For ex: 
+        task tf:apply ENV=dev
+        task tf:apply ENV=dev -- -target=module.vpc -target=module.rds_alb_security_group -auto-approve
+    desc: Apply Terraform state
+    deps:
+      - task: export-env
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      ENV_FILE: '{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/.env'
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    dotenv:
+      - "{{.ENV_FILE}}"
+    silent: false
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          CONTENT:
+            sh: cat {{.ENV_FILE}}
+          MESSAGE: |
+            ENV={{.ENV}}
+            TF_VAR={{.TF_VAR}}
+      - task: export-lambda-env
+        vars:
+          ENV: "{{.ENV}}"
+      - |
+        cd {{.TF_DIR}} && terraform apply -var-file="{{.TF_VAR}}" {{.CLI_ARGS}}
+    requires:
+      vars:
+        - ENV
+    preconditions:
+      - sh: terraform -version
+        msg: "Terraform CLI is not installed"
+  
+  tf:unlock:
+    summary: |
+      Unlock Terraform remote state
+      For ex: 
+        task tf:unlock ENV=dev ID=
+    desc: Unlock Terraform remote state
+    vars:
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    silent: false
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+            ID={{.ID}}
+      - |
+        cd {{.TF_DIR}} && terraform force-unlock -force {{.ID}} {{.CLI_ARGS}}
+    requires:
+      vars:
+        - ENV
+        - ID
+    preconditions:
+      - sh: terraform -version
+        msg: "Terraform CLI is not installed"
+
+  tf:output:
+    summary: |
+      Get output from Terraform state
+      For ex: 
+        task tf:output ENV=dev
+    desc: Get output from Terraform state
+    vars:
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    silent: false
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+            TF_VAR={{.TF_VAR}}
+      - |
+        cd {{.TF_DIR}} && terraform output -json {{.CLI_ARGS}}
+    requires:
+      vars:
+        - ENV
+    preconditions:
+      - sh: terraform -version >/dev/null 2>&1
+        msg: "Terraform CLI is not installed"
+
+  tf:state:list:
+    summary: |
+      Get list Terraform state
+      For ex: 
+        task tf:state:list ENV=dev
+    desc: Get list Terraform state
+    vars:
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+      - |
+        cd {{.TF_DIR}} && terraform state list {{.CLI_ARGS}}
+    requires:
+      vars:
+        - ENV
+    preconditions:
+      - sh: terraform -version >/dev/null 2>&1
+        msg: "Terraform CLI is not installed"
+
+  tf:state:rm:
+    summary: |
+      Remove Terraform state
+      For ex: 
+        task tf:state:list ENV=dev STATE=
+    desc: Remove Terraform state
+    vars:
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+      - |
+        cd {{.TF_DIR}} && terraform state rm {{.STATE}}
+    requires:
+      vars:
+        - ENV
+        - STATE
+    preconditions:
+      - sh: terraform -version >/dev/null 2>&1
+        msg: "Terraform CLI is not installed"
+
+  tf:show:
+    summary: |
+      Show Terraform state
+      For ex: 
+        task tf:show ENV=dev
+    desc: Show Terraform state
+    vars:
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+            TF_DIR={{.TF_DIR}}
+      - |
+        cd {{.TF_DIR}} && terraform show {{.CLI_ARGS}}
+    requires:
+      vars:
+        - ENV
+    preconditions:
+      - sh: terraform -version >/dev/null 2>&1
+        msg: "Terraform CLI is not installed"
+
+  tf:destroy:
+    summary: |
+      Destroy Terraform resources
+      For ex: 
+        task tf:destroy ENV=dev
+    desc: Destroy Terraform resources
+    vars:
+      TF_VAR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}/{{.ENV}}.tfvars'
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            ENV={{.ENV}}
+            TF_VAR={{.TF_VAR}}
+      - |
+        terraform destroy -var-file="{{.TF_VAR}}" {{.CLI_ARGS}}
+    requires:
+      vars:
+        - ENV
+    preconditions:
+      - sh: terraform -version >/dev/null 2>&1
+        msg: "Terraform CLI is not installed"
+
+  docker:build:
+    summary: |
+      Build docker image
+      For ex:
+        task docker:build ENV=dev CONTAINER_NAME=backend
+    desc: Build docker image
+    interactive: true
+    deps:
+      - task: check-container-name
+        vars:
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      BUILD_TIMESTAMP:
+        sh: date '+%A %Y/%m/%d %H:%M:%S %Z'
+      BUILD_VERSION:
+        sh: git log -n 1 --format=%h
+      AWS_ACCOUNT_ID:
+        sh: aws --profile {{.AWS_PROFILE}} sts get-caller-identity --query "Account" --output text
+      AWS_ECR_REPO: "{{.AWS_ACCOUNT_ID}}.dkr.ecr.{{.AWS_REGION}}.amazonaws.com"
+      IMAGE_NAME: "{{.AWS_ECR_REPO}}/{{.APP_NAME}}-{{.ENV}}-{{.CONTAINER_NAME}}"
+      BUILD_NUMBER: "{{.BUILD_NUMBER | default .BUILD_VERSION}}"
+      DEFAULT_DOCKER_FILE: "{{.DEPLOYMENT_DIR}}/docker/Dockerfile"
+      DEFAULT_DOCKER_CONTEXT: "."
+      DOCKER_FILE: "{{.DOCKER_FILE | default .DEFAULT_DOCKER_FILE}}"
+      DOCKER_CONTEXT: "{{.DOCKER_CONTEXT | default .DEFAULT_DOCKER_CONTEXT}}"
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            APP_NAME={{.APP_NAME}}
+            IMAGE_NAME={{.IMAGE_NAME}}
+            BUILD_TIMESTAMP={{.BUILD_TIMESTAMP}}
+            BUILD_VERSION={{.BUILD_VERSION}}
+            BUILD_NUMBER={{.BUILD_NUMBER}}
+            DOCKER_FILE={{.DOCKER_FILE}}
+            DOCKER_CONTEXT={{.DOCKER_CONTEXT}}
+
+      - |
+        docker build \
+        --platform=linux/amd64 \
+        --no-cache \
+        --build-arg ENV="{{.ENV}}" \
+        --build-arg SERVICE_NAME="{{.CONTAINER_NAME}}" \
+        --build-arg BUILD_NUMBER="{{.BUILD_NUMBER}}" \
+        --build-arg BUILD_VERSION="{{.GIT_COMMIT}}" \
+        --build-arg BUILD_TIMESTAMP="{{.BUILD_TIMESTAMP}}" \
+        -f {{.DOCKER_FILE}} \
+        -t {{.IMAGE_NAME}}:{{.BUILD_VERSION}} \
+        -t {{.IMAGE_NAME}}:latest {{.DOCKER_CONTEXT}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - CONTAINER_NAME
+
+  docker:release:golang:alpine:
+    summary: |
+      Build docker image
+      For ex:
+        task docker:release:golang:alpine
+    desc: Build docker image
+    interactive: true
+    vars:
+      BUILD_VERSION: 1.21
+      IMAGE_NAME: "thaitanloi365/golang-alpine"
+      BUILD_NUMBER: "{{.BUILD_NUMBER | default .BUILD_VERSION}}"
+      DEFAULT_DOCKER_FILE: "{{.DEPLOYMENT_DIR}}/docker/Dockerfile.golang_alpine"
+      DEFAULT_DOCKER_CONTEXT: "."
+      DOCKER_FILE: "{{.DOCKER_FILE | default .DEFAULT_DOCKER_FILE}}"
+      DOCKER_CONTEXT: "{{.DOCKER_CONTEXT | default .DEFAULT_DOCKER_CONTEXT}}"
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            APP_NAME={{.APP_NAME}}
+            IMAGE_NAME={{.IMAGE_NAME}}
+            BUILD_TIMESTAMP={{.BUILD_TIMESTAMP}}
+            BUILD_VERSION={{.BUILD_VERSION}}
+            BUILD_NUMBER={{.BUILD_NUMBER}}
+            DOCKER_FILE={{.DOCKER_FILE}}
+            DOCKER_CONTEXT={{.DOCKER_CONTEXT}}
+
+      - |
+        docker build \
+        --platform=linux/amd64 \
+        --no-cache \
+        --build-arg GOLANG_VERSION="{{.BUILD_VERSION}}" \
+        -f {{.DOCKER_FILE}} \
+        -t {{.IMAGE_NAME}}:{{.BUILD_VERSION}} \
+        -t {{.IMAGE_NAME}}:latest {{.DOCKER_CONTEXT}}
+      - docker push {{.IMAGE_NAME}}:{{.BUILD_VERSION}}
+      - docker push {{.IMAGE_NAME}}:latest
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+
+  docker:release:alpine:
+    summary: |
+      Build docker image
+      For ex:
+        task docker:release:alpine
+    desc: Build docker image
+    interactive: true
+    vars:
+      BUILD_VERSION: 3.19
+      IMAGE_NAME: "thaitanloi365/alpine"
+      BUILD_NUMBER: "{{.BUILD_NUMBER | default .BUILD_VERSION}}"
+      DEFAULT_DOCKER_FILE: "{{.DEPLOYMENT_DIR}}/docker/Dockerfile.alpine"
+      DEFAULT_DOCKER_CONTEXT: "."
+      DOCKER_FILE: "{{.DOCKER_FILE | default .DEFAULT_DOCKER_FILE}}"
+      DOCKER_CONTEXT: "{{.DOCKER_CONTEXT | default .DEFAULT_DOCKER_CONTEXT}}"
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            APP_NAME={{.APP_NAME}}
+            IMAGE_NAME={{.IMAGE_NAME}}
+            BUILD_TIMESTAMP={{.BUILD_TIMESTAMP}}
+            BUILD_VERSION={{.BUILD_VERSION}}
+            BUILD_NUMBER={{.BUILD_NUMBER}}
+            DOCKER_FILE={{.DOCKER_FILE}}
+            DOCKER_CONTEXT={{.DOCKER_CONTEXT}}
+
+      - |
+        docker build \
+        --platform=linux/amd64 \
+        --no-cache \
+        --build-arg ALPINE_VERSION="{{.BUILD_VERSION}}" \
+        -f {{.DOCKER_FILE}} \
+        -t {{.IMAGE_NAME}}:{{.BUILD_VERSION}} \
+        -t {{.IMAGE_NAME}}:latest {{.DOCKER_CONTEXT}}
+      - docker push {{.IMAGE_NAME}}:{{.BUILD_VERSION}}
+      - docker push {{.IMAGE_NAME}}:latest
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+
+  docker:release:golang:
+    summary: |
+      Build docker image
+      For ex:
+        task docker:release:golang
+    desc: Build docker image
+    interactive: true
+    vars:
+      BUILD_VERSION: 1.21
+      IMAGE_NAME: "thaitanloi365/golang-bullseye"
+      BUILD_NUMBER: "{{.BUILD_NUMBER | default .BUILD_VERSION}}"
+      DEFAULT_DOCKER_FILE: "{{.DEPLOYMENT_DIR}}/docker/Dockerfile.golang"
+      DEFAULT_DOCKER_CONTEXT: "."
+      DOCKER_FILE: "{{.DOCKER_FILE | default .DEFAULT_DOCKER_FILE}}"
+      DOCKER_CONTEXT: "{{.DOCKER_CONTEXT | default .DEFAULT_DOCKER_CONTEXT}}"
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            APP_NAME={{.APP_NAME}}
+            IMAGE_NAME={{.IMAGE_NAME}}
+            BUILD_TIMESTAMP={{.BUILD_TIMESTAMP}}
+            BUILD_VERSION={{.BUILD_VERSION}}
+            BUILD_NUMBER={{.BUILD_NUMBER}}
+            DOCKER_FILE={{.DOCKER_FILE}}
+            DOCKER_CONTEXT={{.DOCKER_CONTEXT}}
+
+      - |
+        docker build \
+        --platform=linux/amd64 \
+        --no-cache \
+        --build-arg GOLANG_VERSION="{{.BUILD_VERSION}}" \
+        -f {{.DOCKER_FILE}} \
+        -t {{.IMAGE_NAME}}:{{.BUILD_VERSION}} \
+        -t {{.IMAGE_NAME}}:latest {{.DOCKER_CONTEXT}}
+      - docker push {{.IMAGE_NAME}}:{{.BUILD_VERSION}}
+      - docker push {{.IMAGE_NAME}}:latest
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+  
+
+  docker:push:
+    summary: |
+      Push docker image to ECR
+      For ex:
+        task docker:push ENV=dev CONTAINER=inflow-dev-backend
+    desc: Push docker image to ECR
+    deps:
+      - task: check-container-name
+        vars:
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+      - task: aws:ecr:login
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      BUILD_VERSION:
+        sh: git log -n 1 --format=%h
+      AWS_ACCOUNT_ID:
+        sh: aws --profile {{.AWS_PROFILE}} sts get-caller-identity --query "Account" --output text
+      AWS_ECR_REPO: "{{.AWS_ACCOUNT_ID}}.dkr.ecr.{{.AWS_REGION}}.amazonaws.com"
+      IMAGE_NAME: "{{.AWS_ECR_REPO}}/{{.APP_NAME}}-{{.ENV}}-{{.CONTAINER_NAME}}"
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            APP_NAME={{.APP_NAME}}
+            IMAGE_NAME={{.IMAGE_NAME}}
+            BUILD_VERSION={{.BUILD_VERSION}}
+      - |
+        docker push {{.IMAGE_NAME}}:{{.BUILD_VERSION}}
+        docker push {{.IMAGE_NAME}}:latest
+    requires:
+      vars:
+        - ENV
+        - CONTAINER_NAME
+
+  docker:release:
+    summary: |
+      Build & Push dokcer image to ECR
+      For ex: 
+        task docker:release ENV=dev CONTAINER_NAME=backend
+    desc: Build & Push dokcer image to ECR
+    cmds:
+      - task: check-container-name
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+      - task: docker:build
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+          DOCKER_FILE: "{{.DOCKER_FILE}}"
+          DOCKER_CONTEXT: "{{.DOCKER_CONTEXT}}"
+      - task: docker:push
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+    silent: false
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - CONTAINER_NAME
+
+  app:static:upload:
+    summary: |
+      Upload static files
+      For ex: 
+        task app:static:upload: ENV=dev
+    desc: Upload static files
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      STATIC_FILE: "{{.USER_WORKING_DIR}}/static/google_client_secret.json"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      DATASTORE_BUCKET: 
+        sh: jq -r '.TF_VAR_datastore_bucket' {{.SECRET_FILE}}
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            STATIC_FILE={{.STATIC_FILE}}
+            DATASTORE_BUCKET={{.DATASTORE_BUCKET}}
+      - |
+        aws s3 --profile {{.AWS_PROFILE}} cp {{.STATIC_FILE}} s3://{{.DATASTORE_BUCKET}}/app/
+      - task: app:ssh
+        vars:
+          CLI_ARGS: aws s3 cp --recursive s3://{{.DATASTORE_BUCKET}}/app efs
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+      - sh: test -f {{.PEM_FILE}}
+        msg: "{{.PEM_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:ssh:
+    summary: |
+      SSH to VPN server
+      For ex: 
+        task app:ssh ENV=dev
+    desc: SSH to VPN server
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      USER:
+        sh: jq -r '.AGENT_USER' {{.SECRET_FILE}}
+      HOST:
+        sh: jq -r '.TF_VAR_vpn_ip' {{.SECRET_FILE}}
+      ADDRESS: "{{.USER}}@{{.HOST}}"
+      PEM_FILE:
+        sh: echo "{{.USER_WORKING_DIR}}/$(jq -r '.AGENT_PEM_FILE' {{.SECRET_FILE}})"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            ADDRESS={{.ADDRESS}}
+            PEM_FILE={{.PEM_FILE}}
+      - |
+        chmod 400 {{.PEM_FILE}} && ssh -i {{.PEM_FILE}} {{.ADDRESS}} {{.CLI_ARGS}}
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+      - sh: test -f {{.PEM_FILE}}
+        msg: "{{.PEM_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:scp:
+    summary: |
+      Copy file from remote server to local
+      For ex: 
+        task app:scp ENV=dev FILE=~/file.txt
+    desc: Copy file from remote server to local
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      USER:
+        sh: jq -r '.AGENT_USER' {{.SECRET_FILE}}
+      HOST:
+        sh: jq -r '.TF_VAR_vpn_ip' {{.SECRET_FILE}}
+      ADDRESS: "{{.USER}}@{{.HOST}}"
+      PEM_FILE:
+        sh: echo "{{.USER_WORKING_DIR}}/$(jq -r '.AGENT_PEM_FILE' {{.SECRET_FILE}})"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            ADDRESS={{.ADDRESS}}
+            PEM_FILE={{.PEM_FILE}}
+            FILE={{.FILE}}
+      - |
+        chmod 400 {{.PEM_FILE}} && scp -i {{.PEM_FILE}} {{.ADDRESS}}:{{.FILE}} .
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+      - sh: test -f {{.PEM_FILE}}
+        msg: "{{.PEM_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - FILE
+
+  app:dev:
+    summary: |
+      Start service locally
+      For ex: 
+        task app:dev ENV=dev SERVICE=backend PORT=8080
+        task app:dev ENV=dev SERVICE=consumer PORT=8081
+    desc: Start service locally
+    deps:
+      - task: export-env
+      - task: check-container-name
+        vars:
+          CONTAINER_NAME: "{{.SERVICE}}"
+    silent: false
+
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      PORT: "{{.PORT | default 8080}}"
+    interactive: true
+    cmds:
+      - |
+        SERVER_PORT={{.PORT}} SERVICE_NAME={{.SERVICE}} air \
+        --tmp_dir="dist" \
+        --build.log="" \
+        --build.cmd "go build -o dist/{{.SERVICE}}/main ./cmd/{{.SERVICE}}" \
+        --build.bin "./dist/{{.SERVICE}}/main --config {{.SECRET_FILE}} serve" \
+        --build.exclude_dir="tests,sql,deployment"
+        --build.include_dir="cmd/{{.SERVICE}},pkg/{{.SERVICE}}"
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: air -v
+        msg: "air CLI is not installed https://github.com/cosmtrek/air"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SERVICE
+
+  app:env:update:
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      SECRET_ID:
+        sh: jq -r '.AWS_SECRET_MANAGER_ENV_ID' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      DATASTORE_BUCKET: 
+        sh: jq -r '.TF_VAR_datastore_bucket' {{.SECRET_FILE}}
+      DEST_ENV_FILE: "{{.ENV}}.json"
+    silent: true
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            SECRET_ID={{.SECRET_ID}}
+            DATASTORE_BUCKET={{.DATASTORE_BUCKET}}
+            DEST_ENV_FILE={{.DEST_ENV_FILE}}
+      - task: aws:secretsmanager:update
+        vars:
+          CONTAINER_NAME: "{{.SERVICE}}"
+          SECRET_ID: "{{.SECRET_ID}}"
+          AWS_PROFILE: "{{.AWS_PROFILE}}"
+          AWS_REGION: "{{.AWS_REGION}}"
+      - |
+        aws s3 --profile {{.AWS_PROFILE}} cp {{.SECRET_FILE}} s3://{{.DATASTORE_BUCKET}}/app/{{.DEST_ENV_FILE}}
+      - task: app:ssh
+        vars:
+          CLI_ARGS: aws s3 cp --recursive s3://{{.DATASTORE_BUCKET}}/app efs
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:env:get:
+    silent: true
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      SECRET_ID:
+        sh: jq -r '.AWS_SECRET_MANAGER_ENV_ID' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      DATASTORE_BUCKET: 
+        sh: jq -r '.TF_VAR_datastore_bucket' {{.SECRET_FILE}}
+    cmds:
+      - task: aws:secretsmanager:get
+        vars:
+          CONTAINER_NAME: "{{.SERVICE}}"
+          SECRET_ID: "{{.SECRET_ID}}"
+          AWS_PROFILE: "{{.AWS_PROFILE}}"
+          AWS_REGION: "{{.AWS_REGION}}"
+        silent: true
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:info:
+    summary: |
+      Get server information
+      For ex: 
+        task app:info ENV=dev
+    desc: Get server information
+    silent: true
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      GIT_COMMIT:
+        sh: git rev-parse --verify HEAD
+      GIT_COMMIT_FULL:
+        sh: git show -s $(git rev-parse --verify HEAD)
+      SERVER_BASE_URL:
+        sh: jq -r '.SERVER_BASE_URL' {{.SECRET_FILE}}
+      CONSUMER_SERVER_BASE_URL:
+        sh: jq -r '.CONSUMER_SERVER_BASE_URL' {{.SECRET_FILE}}
+      SERVER_URLS: "{{.SERVER_BASE_URL}},{{.CONSUMER_SERVER_BASE_URL}}"
+    interactive: true
+    cmds:
+      - for: {var: SERVER_URLS, split: ','}
+        cmd: |
+          echo {{.ITEM}}
+          info=$(curl -s {{.ITEM}})
+          hash=$(echo $info | jq -r '.build_git_sha1')
+          commit=$(echo $info | jq -r '.build_git_commit')
+          if [[ "$hash" == "{{.GIT_COMMIT}}" ]]; then
+            echo "Your {{.ITEM}} server is up to date"
+            echo "Your current commit: {{.GIT_COMMIT}}"
+            echo "{{.GIT_COMMIT_FULL}}"
+            echo -e "\r\n"
+            echo "Your {{.ITEM}} server commit: $commit"
+          else
+            echo "The server might NOT up to date"
+            echo "Your current commit: {{.GIT_COMMIT}}"
+            echo "{{.GIT_COMMIT_FULL}}"
+            echo -e "\r\n"
+            echo "Your {{.ITEM}} server commit: $commit"
+          fi
+          echo -e "\r\n"
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:deps:redis:
+    summary: |
+      Start redis deps
+      For ex: task app:deps:redis
+    silent: false
+    vars:
+      ENV: '{{.ENV | default "local"}}'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      PORT: "{{.PORT | default 16379}}"
+      CONTAINER_NAME: "{{.APP_NAME}}-{{.ENV}}-redis"
+      Names: '{{.Names}}'
+    interactive: true
+    cmds:
+      - |
+        docker start {{.CONTAINER_NAME}} || docker run -d \
+        --name {{.CONTAINER_NAME}} \
+        -p {{.PORT}}:6379 redis:6.2-alpine && sleep 5
+      - task: check-container-status
+        vars:
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+          PORT: "{{.PORT}}"
+    preconditions:
+      - sh: docker --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+
+  app:deps:postgres:
+    summary: |
+      Start postgres deps
+      For ex: 
+        task app:deps:postgres
+    silent: false
+    vars:
+      ENV: '{{.ENV | default "local"}}'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      PORT: "{{.REDIS_PORT | default 15432}}"
+      CONTAINER_NAME: "{{.APP_NAME}}-{{.ENV}}-postgres"
+      DB_HOST:
+        sh: jq -r '.DB_HOST' {{.SECRET_FILE}}
+      DB_NAME:
+        sh: jq -r '.DB_NAME' {{.SECRET_FILE}}
+      DB_PASSWORD:
+        sh: jq -r '.DB_PASSWORD' {{.SECRET_FILE}}
+      DB_USER:
+        sh: jq -r '.DB_USER' {{.SECRET_FILE}}
+      DB_PORT:
+        sh: jq -r '.DB_PORT' {{.SECRET_FILE}}
+      POSTGRES_PASSWORD: '{{.DB_PASSWORD | default "1234qwer"}}'
+    interactive: true
+    cmds:
+      - |
+        docker start {{.CONTAINER_NAME}} || docker run -d \
+        --name {{.CONTAINER_NAME}} \
+        -e POSTGRES_PASSWORD={{.POSTGRES_PASSWORD}} \
+        -p {{.PORT}}:5432 postgres:14-alpine && sleep 5
+      - task: check-container-status
+        vars:
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+          PORT: "{{.PORT}}"
+      - |
+        PGPASSWORD={{.POSTGRES_PASSWORD}} psql -h {{.DB_HOST}} -p {{.DB_PORT}} -U {{.DB_USER}} -tc "SELECT 1 FROM pg_database WHERE datname = '{{.DB_NAME}}'" | grep -q 1 || psql -U {{.DB_USER}} -c "CREATE DATABASE {{.DB_NAME}}"
+    preconditions:
+      - sh: docker --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+
+  app:deps:pgadmin:
+    summary: |
+      Start pgadmin
+      For ex: task app:deps:pgadmin
+    silent: false
+    vars:
+      ENV: '{{.ENV | default "local"}}'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      PORT: "{{.REDIS_PORT | default 180}}"
+      PGADMIN_DEFAULT_EMAIL: '{{.PGADMIN_DEFAULT_EMAIL | default "admin@gmail.com"}}'
+      PGADMIN_DEFAULT_PASSWORD: '{{.PGADMIN_DEFAULT_PASSWORD | default "1234qwer"}}'
+      CONTAINER_NAME: "{{.APP_NAME}}-{{.ENV}}-pgadmin"
+    interactive: true
+    cmds:
+      - |
+        docker start {{.CONTAINER_NAME}} || docker run -d \
+        --name {{.CONTAINER_NAME}} \
+        -e PGADMIN_DEFAULT_EMAIL={{.PGADMIN_DEFAULT_EMAIL}} \
+        -e PGADMIN_DEFAULT_PASSWORD={{.PGADMIN_DEFAULT_PASSWORD}} \
+        -p {{.PORT}}:80 dpage/pgadmin4 && sleep 5
+      - task: check-container-status
+        vars:
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+          PORT: "{{.PORT}}"
+
+    preconditions:
+      - sh: docker --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+
+  app:deps:
+    summary: |
+      Start all neccessary deps containers
+      For ex: task app:deps
+    silent: false
+    vars:
+      ENV: '{{.ENV | default "local"}}'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME: 
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+    interactive: true
+    cmds:
+      - task: app:deps:redis
+      - task: app:deps:postgres
+      - task: app:deps:pgadmin
+
+    preconditions:
+      - sh: docker --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+  
+  app:logs:watch:
+    summary: |
+      Watch logs from AWS Cloudwatch
+      Usage: saw watch --get
+      Docs: https://github.com/TylerBrock/saw
+      For ex: 
+        # Get production log group for the last 2 hours
+        task app:logs:watch ENV=dev SERVICE=backend
+
+        # Get production log group for the last 2 hours and filter for "error"
+        task app:logs:watch ENV=dev SERVICE=backend -- --filter error
+    desc: Watch logs from AWS Cloudwatch
+    deps:
+      - task: check-container-name
+        vars:
+          CONTAINER_NAME: "{{.SERVICE}}"
+    silent: false
+    interactive: true
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      LOG_GROUP: "{{.APP_NAME}}-{{.ENV}}-{{.SERVICE}}-logs"
+    cmds:
+      - aws --profile {{.AWS_PROFILE}} --region {{.AWS_REGION}} logs tail {{.LOG_GROUP}} --follow {{.CLI_ARGS}}
+    preconditions:
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SERVICE
+
+  app:cognito:user:get:
+    summary: |
+      task app:cognito:user:get ENV=dev
+    desc: Get user cognitor
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      COGNITO_USER_ID: 
+        sh: jq -r '.COGNITO_USER_ID' {{.SECRET_FILE}}
+      COGNITO_USER_NAME: 
+        sh: jq -r '.COGNITO_USER_NAME' {{.SECRET_FILE}}
+      COGNITO_USER_EMAIL: 
+        sh: jq -r '.COGNITO_USER_EMAIL' {{.SECRET_FILE}}
+    cmds:
+      - |
+        aws cognito-idp admin-get-user \
+        --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --user-pool-id {{.COGNITO_USER_ID}} \
+        --username {{.COGNITO_USER_NAME}}
+    preconditions:
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:cognito:user:create:
+    summary: |
+      task app:cognito:user:create ENV=dev
+    desc: Create coginito user
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      COGNITO_USER_ID: 
+        sh: jq -r '.COGNITO_USER_ID' {{.SECRET_FILE}}
+      COGNITO_USER_NAME: 
+        sh: jq -r '.COGNITO_USER_NAME' {{.SECRET_FILE}}
+      COGNITO_USER_EMAIL: 
+        sh: jq -r '.COGNITO_USER_EMAIL' {{.SECRET_FILE}}
+    cmds:
+      - |
+        aws cognito-idp admin-create-user \
+          --profile {{.AWS_PROFILE}} \
+          --region {{.AWS_REGION}} \
+          --user-pool-id "{{.COGNITO_USER_ID}}" \
+          --username "{{.COGNITO_USER_NAME}}"  \
+          --user-attributes "Name=email,Value={{.COGNITO_USER_EMAIL}}" \
+          --message-action SUPPRESS
+    preconditions:
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:cognito:user:pwd:update:
+    summary: |
+      task app:cognito:user:pwd:update ENV=dev
+    desc: Update coginito user password
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      COGNITO_USER_ID: 
+        sh: jq -r '.COGNITO_USER_ID' {{.SECRET_FILE}}
+      COGNITO_USER_NAME: 
+        sh: jq -r '.COGNITO_USER_NAME' {{.SECRET_FILE}}
+      COGNITO_USER_PASSWORD: 
+        sh: jq -r '.COGNITO_USER_PASSWORD' {{.SECRET_FILE}}
+    cmds:
+      - |
+        aws cognito-idp admin-set-user-password --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --user-pool-id "{{.COGNITO_USER_ID}}" \
+        --username "{{.COGNITO_USER_NAME}}" \
+        --password "{{.COGNITO_USER_PASSWORD}}" \
+        --permanent
+    preconditions:
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:cognito:user:auth:
+    summary: |
+      task app:cognito:user:auth ENV=dev
+    desc: Update coginito user password
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      COGNITO_USER_ID: 
+        sh: jq -r '.COGNITO_USER_ID' {{.SECRET_FILE}}
+      COGNITO_CLIENT_ID:
+        sh: jq -r '.COGNITO_CLIENT_ID' {{.SECRET_FILE}}
+      COGNITO_USER_NAME: 
+        sh: jq -r '.COGNITO_USER_NAME' {{.SECRET_FILE}}
+      COGNITO_USER_PASSWORD: 
+        sh: jq -r '.COGNITO_USER_PASSWORD' {{.SECRET_FILE}}
+    cmds:
+      - |
+        aws cognito-idp initiate-auth --profile {{.AWS_PROFILE}} \
+        --region {{.AWS_REGION}} \
+        --auth-flow USER_PASSWORD_AUTH \
+        --client-id {{.COGNITO_CLIENT_ID}} \
+        --auth-parameters "USERNAME={{.COGNITO_USER_NAME}},PASSWORD={{.COGNITO_USER_PASSWORD}}"
+    preconditions:
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:logs:get:
+    summary: |
+      Get Cloudwatch logs
+      Usage: saw get --get
+      Docs: https://github.com/TylerBrock/saw
+      For ex
+        # Get production log group for the last 2 hours and filter for "error"
+        task app:logs:get ENV=alpha SERVICE=backend -- --start-time 1703758500 --filter-pattern 'error'
+    desc: Get Cloudwatch logs
+    deps:
+      - task: check-container-name
+        vars:
+          CONTAINER_NAME: "{{.SERVICE}}"
+    silent: false
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      APP_NAME:
+        sh: jq -r '.APP_NAME' {{.SECRET_FILE}}
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      LOG_GROUP: "{{.APP_NAME}}-{{.ENV}}-{{.SERVICE}}-logs"
+    cmds:
+      - aws logs --profile {{.AWS_PROFILE}} --region {{.AWS_REGION}} ilter-log-events --log-group-name {{.LOG_GROUP}} {{.CLI_ARGS}}
+    preconditions:
+      - sh: saw version
+        msg: "saw CLI is not installed https://github.com/TylerBrock/saw"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SERVICE
+
+  app:lint:
+    summary: |
+      Lint Golang code
+      For ex:
+        task app:lint
+    desc: Lint Golang code
+    cmds:
+      - go vet ./...
+
+  app:deploy:media:
+    summary: |
+      Deploy media service
+      For ex: 
+        task app:deploy:media ENV=dev
+    desc: Deploy media service
+    silent: false
+    vars:
+      CONTAINER_NAME: media
+    cmds:
+      - task: export-imageproxy-env
+        vars:
+          ENV: "{{.ENV}}"
+      - task: docker:release
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+          DOCKER_FILE: "{{.USER_WORKING_DIR}}/imageproxy/Dockerfile"
+          DOCKER_CONTEXT: "imageproxy"
+      - task: aws:ecs:update
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+
+  app:deploy:backend:
+    summary: |
+      Deploy backend service
+      For ex: 
+        task app:deploy:backend ENV=dev
+    desc: Deploy backend service
+    silent: false
+    vars:
+      CONTAINER_NAME: backend
+    cmds:
+      - task: docker:release
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+      - task: aws:ecs:update
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+
+    preconditions:
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:deploy:consumer:
+    summary: |
+      Deploy consumer service
+      For ex: 
+        task app:deploy:consumer ENV=dev
+    desc: Deploy consumer service
+    silent: false
+    vars:
+      CONTAINER_NAME: consumer
+    cmds:
+      - task: docker:release
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+      - task: aws:ecs:update
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+
+    preconditions:
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:deploy:crawler:
+    summary: |
+      Deploy crawler service
+      For ex: 
+        task app:deploy:crawler ENV=dev
+    desc: Deploy crawler service
+    silent: false
+    vars:
+      CONTAINER_NAME: crawler
+    cmds:
+      - task: docker:release
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+      - task: aws:ecs:update
+        vars:
+          ENV: "{{.ENV}}"
+          CONTAINER_NAME: "{{.CONTAINER_NAME}}"
+
+    preconditions:
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+
+  app:deploy:
+    summary: |
+      Deploy services
+      For ex: 
+        task app:deploy ENV=dev SERVICES=backend,consumer,crawler
+    desc: Deploy services
+    silent: false
+    cmds:
+      - for: {var: SERVICES, split: ','}
+        task: app:deploy:{{.ITEM}}
+        silent: true
+    preconditions:
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+        - SERVICES
+
+  app:scripts:run:
+    summary: |
+      Run script
+      For ex: 
+        task app:scripts:run
+    desc: Deploy services
+    silent: false
+    interactive: true
+    cmds:
+      - cd scripts && go run *.go
+
+  app:keys:update:
+    summary: |
+      Update keys
+      For ex: 
+        task app:keys:update ENV=dev
+    desc: Update env from JSON file
+    vars:
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      PRIVATE_PEM: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/private.pem"
+      PUBLIC_PEM: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/public.pem"
+      AWS_PROFILE: 
+        sh: jq -r '.AWS_PROFILE' {{.SECRET_FILE}}
+      AWS_REGION: 
+        sh: jq -r '.AWS_REGION' {{.SECRET_FILE}}
+      DATASTORE_BUCKET: 
+        sh: jq -r '.TF_VAR_datastore_bucket' {{.SECRET_FILE}}
+    silent: true
+    interactive: true
+    cmds:
+      - task: confirm
+        vars:
+          MESSAGE: |
+            SECRET_FILE={{.SECRET_FILE}}
+            AWS_PROFILE={{.AWS_PROFILE}}
+            AWS_REGION={{.AWS_REGION}}
+            SECRET_ID={{.SECRET_ID}}
+            DATASTORE_BUCKET={{.DATASTORE_BUCKET}}
+            PUBLIC_PEM={{.PUBLIC_PEM}}
+            PRIVATE_PEM={{.PRIVATE_PEM}}
+      - |
+        aws s3 --profile {{.AWS_PROFILE}} cp {{.PRIVATE_PEM}} s3://{{.DATASTORE_BUCKET}}/app/
+        aws s3 --profile {{.AWS_PROFILE}} cp {{.PUBLIC_PEM}} s3://{{.DATASTORE_BUCKET}}/app/
+      - task: app:ssh
+        vars:
+          CLI_ARGS: aws s3 cp --recursive s3://{{.DATASTORE_BUCKET}}/app efs
+    preconditions:
+      - sh: jq --version
+        msg: "jq CLI is not installed https://github.com/jqlang/jq"
+      - sh: aws --version
+        msg: "AWS CLI is not installed https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+      - sh: test -f {{.SECRET_FILE}}
+        msg: "{{.SECRET_FILE}} is not found"
+    requires:
+      vars:
+        - ENV
+  
+  setup-env-dir:
+    vars:
+      ENV_DIR: '{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.ENV_DIR}}/
+    requires:
+      vars:
+        - ENV
+
+  export-env:
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/.env'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - cmd: |
+          cat {{.SECRET_FILE}} | jq -S -r "to_entries|map(\"\(.key)=\(.value|tostring)\")|.[]" > {{.ENV_FILE}}
+
+  export-lambda-env:
+    summary: |
+      Export env from JSON file
+      For ex: 
+        task export-lambda-env ENV=dev
+    desc: Export env from JSON file
+    cmds:
+      - task: export-lambda-resize-env
+        vars:
+          ENV: "{{.ENV}}"
+      - task: export-lambda-rod-env
+        vars:
+          ENV: "{{.ENV}}"
+      - task: export-lambda-ffmpeg-env
+        vars:
+          ENV: "{{.ENV}}"
+      - task: export-lambda-blur-env
+        vars:
+          ENV: "{{.ENV}}"
+    requires:
+      vars:
+        - ENV
+
+  export-lambda-slack-env:
+    summary: |
+      Export env from JSON file
+      For ex: 
+        task export-lambda-slack-env ENV=dev
+    desc: Export env from JSON file
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/slack/.env'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - cmd: |
+          cat {{.SECRET_FILE}} | jq '{
+          JWT_SECRET: .TF_VAR_media_jwt_secret,
+          AWS_STORAGE_URL: .AWS_STORAGE_URL,
+          AWS_STORAGE_BUCKET: .TF_VAR_storage_s3_bucket,
+          AWS_CDN_URL: .AWS_CDN_URL,
+          AWS_CDN_BUCKET: .TF_VAR_cdn_s3_bucket,
+          AWS_REGION: .AWS_REGION,
+          }' | jq -S -r "to_entries|map(\"\(.key)=\(.value|tostring)\")|.[]" > {{.ENV_FILE}}
+    requires:
+      vars:
+        - ENV
+
+  export-lambda-classify-env:
+    summary: |
+      Export env from JSON file
+      For ex: 
+        task export-lambda-classify-env ENV=dev
+    desc: Export env from JSON file
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/classify/.env'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - cmd: |
+          cat {{.SECRET_FILE}} | jq '{
+          JWT_SECRET: .TF_VAR_media_jwt_secret,
+          AWS_STORAGE_URL: .AWS_STORAGE_URL,
+          AWS_STORAGE_BUCKET: .TF_VAR_storage_s3_bucket,
+          AWS_CDN_URL: .AWS_CDN_URL,
+          AWS_CDN_BUCKET: .TF_VAR_cdn_s3_bucket,
+          AWS_REGION: .AWS_REGION,
+          }' | jq -S -r "to_entries|map(\"\(.key)=\(.value|tostring)\")|.[]" > {{.ENV_FILE}}
+    requires:
+      vars:
+        - ENV
+        
+  export-lambda-resize-env:
+    summary: |
+      Export env from JSON file
+      For ex: 
+        task export-lambda-resize-env ENV=dev
+    desc: Export env from JSON file
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/resize/.env'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - cmd: |
+          cat {{.SECRET_FILE}} | jq '{
+          JWT_SECRET: .TF_VAR_media_jwt_secret,
+          AWS_STORAGE_URL: .AWS_STORAGE_URL,
+          AWS_STORAGE_BUCKET: .TF_VAR_storage_s3_bucket,
+          AWS_CDN_URL: .AWS_CDN_URL,
+          AWS_CDN_BUCKET: .TF_VAR_cdn_s3_bucket,
+          AWS_REGION: .AWS_REGION,
+          }' | jq -S -r "to_entries|map(\"\(.key)=\(.value|tostring)\")|.[]" > {{.ENV_FILE}}
+    requires:
+      vars:
+        - ENV
+
+  export-lambda-rod-env:
+    summary: |
+      Export env from JSON file
+      For ex: 
+        task export-lambda-rod-env ENV=dev
+    desc: Export env from JSON file
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/rod/.env'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - cmd: |
+          cat {{.SECRET_FILE}} | jq '{
+          JWT_SECRET: .TF_VAR_media_jwt_secret,
+          AWS_STORAGE_URL: .AWS_STORAGE_URL,
+          AWS_STORAGE_BUCKET: .TF_VAR_storage_s3_bucket,
+          AWS_CDN_URL: .AWS_CDN_URL,
+          AWS_CDN_BUCKET: .TF_VAR_cdn_s3_bucket,
+          AWS_REGION: .AWS_REGION,
+          }' | jq -S -r "to_entries|map(\"\(.key)=\(.value|tostring)\")|.[]" > {{.ENV_FILE}}
+    requires:
+      vars:
+        - ENV
+
+  export-lambda-ffmpeg-env:
+    summary: |
+      Export env from JSON file
+      For ex: 
+        task export-lambda-ffmpeg-env ENV=dev
+    desc: Export env from JSON file
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/ffmpeg/.env'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - cmd: |
+          cat {{.SECRET_FILE}} | jq '{
+          JWT_SECRET: .TF_VAR_media_jwt_secret,
+          AWS_STORAGE_URL: .AWS_STORAGE_URL,
+          AWS_STORAGE_BUCKET: .TF_VAR_storage_s3_bucket,
+          AWS_CDN_URL: .AWS_CDN_URL,
+          AWS_CDN_BUCKET: .TF_VAR_cdn_s3_bucket,
+          AWS_REGION: .AWS_REGION,
+          }' | jq -S -r "to_entries|map(\"\(.key)=\(.value|tostring)\")|.[]" > {{.ENV_FILE}}
+    requires:
+      vars:
+        - ENV
+
+  export-lambda-blur-env:
+    summary: |
+      Export env from JSON file
+      For ex: 
+        task export-lambda-blur-env ENV=dev
+    desc: Export env from JSON file
+    vars:
+      ENV_FILE: '{{.DEPLOYMENT_TF_DIR}}/modules/lambda/blur/.env'
+      SECRET_FILE: "{{.DEPLOYMENT_CONFIG_DIR}}/{{.ENV}}/env.json"
+      TF_VAR: '{{.ENV}}.tfvars'
+      TF_DIR: '{{.DEPLOYMENT_TF_DIR}}/envs/{{.ENV}}'
+    cmds:
+      - mkdir -p {{.TEMP_DIR}}/
+      - cmd: |
+          cat {{.SECRET_FILE}} | jq '{
+          JWT_SECRET: .TF_VAR_media_jwt_secret,
+          AWS_STORAGE_URL: .AWS_STORAGE_URL,
+          AWS_STORAGE_BUCKET: .TF_VAR_storage_s3_bucket,
+          AWS_CDN_URL: .AWS_CDN_URL,
+          AWS_CDN_BUCKET: .TF_VAR_cdn_s3_bucket,
+          AWS_REGION: .AWS_REGION,
+          }' | jq -S -r "to_entries|map(\"\(.key)=\(.value|tostring)\")|.[]" > {{.ENV_FILE}}
+    requires:
+      vars:
+        - ENV
+  confirm:
+    summary: Require promt before excution
+    prompt: |
+      Do you want to continue?
+      {{.MESSAGE}}
+      {{.CONTENT}}
+    silent: true
+  
+  check-container-name:
+    summary: Require promt before excution
+    cmds:
+      - |
+        if {{.VALID_CONTAINER_NAMES | splitList "," | has .CONTAINER_NAME}}; then
+        else
+          echo CONTAINER_NAME={{.CONTAINER_NAME}} is not valid, only supports {{.VALID_CONTAINER_NAMES | splitList ","}}
+          exit 1
+        fi
+    silent: true
+    requires:
+      vars:
+        - CONTAINER_NAME
+  
+  check-container-status:
+    summary: Check container status
+    cmds:  
+      - |
+        docker_status=$(docker container inspect inflow-local-pgadmin | jq -r '.[0].State.Status')
+        if [ "$docker_status" = "true" ]; then
+          echo "Docker container {{.CONTAINER_NAME}} is running at http://localhost:{{.PORT}}"
+        else
+          echo "Docker container {{.CONTAINER_NAME}} is NOT running, current status $docker_status"
+        fi
+    silent: true
+    requires:
+      vars:
+        - CONTAINER_NAME
+        - PORT

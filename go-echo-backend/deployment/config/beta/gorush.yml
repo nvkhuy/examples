@@ -1,0 +1,75 @@
+core:
+  enabled: true
+  address: ''
+  shutdown_timeout: 30
+  port: '8088'
+  max_notification: 100
+  worker_num: 3
+  queue_num: 1024
+  mode: release
+  sync: false
+  ssl: false
+  cert_path: ''
+  key_path: ''
+  cert_base64: ''
+  key_base64: ''
+  http_proxy: ''
+  feedback_hook_url: 'https://alpha-consumer.elitemedicalstaffing.com/api/v1/callback/push_notification'
+  feedback_timeout: 10
+  pid:
+    enabled: false
+    path: gorush.pid
+    override: true
+  auto_tls:
+    enabled: false
+    folder: .cache
+    host: ''
+
+api:
+  push_uri: /api/push
+  stat_go_uri: /api/stat/go
+  stat_app_uri: /api/stat/app
+  config_uri: /api/config
+  sys_stat_uri: /sys/stats
+  metric_uri: /metrics
+  health_uri: /healthz
+
+android:
+  enabled: true
+  apiKey: AAAAIHlLlrA:APA91bF_5du3pBK2Gzfm0fN_CTgRL8AbgpKMvny48aNs0TVJ3nyCckqLJM7wgnztuX1aB5h-ZrFFrnF_UzhrbC2dqhuWKY2l1mvVoRBrq5dkEOmN9QeDYjxaeD__P-F_5gwk1JE8IkkN
+  max_retry: 3
+
+huawei:
+  enabled: false
+  apikey: ''
+  appid: ''
+  max_retry: 0
+
+ios:
+  enabled: true
+  key_path: '/AuthKey_92HN74MKLL.p8'
+  key_base64: ''
+  key_type: p8
+  password: ''
+  production: true
+  max_retry: 3
+  key_id: '92HN74MKLL'
+  team_id: 'A2Q782T277'
+
+log:
+  format: string
+  access_log: stdout
+  access_level: debug
+  error_log: stderr
+  error_level: error
+  hide_token: false
+
+stat:
+  engine: "memory"
+
+queue:
+  engine: local 
+
+grpc:
+  enabled: true
+  port: '9000'

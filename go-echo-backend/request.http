@@ -1,0 +1,192 @@
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaUdvbiIsImNpZCI6IiIsImF1ZCI6InN1cGVyX2FkbWluIiwiaXNzIjoiY2c1Z3AzdWpudnZiMGtucDM5MDAifQ.Rq3dCNllp4elGjMEfmRT_eeCmHLXOlgLjQp2rEgMcl4
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "shopify_create_webhooks",
+    "data": {
+        "client_info": {
+            "shop_name":"inflow-test-store-loi.myshopify.com",
+            "token":"shpua_5f34282642afc3470bffc19f94b092ab"
+        }
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwiYXVkIjoic3VwZXJfYWRtaW4iLCJpc3MiOiJjb3Nwa3ZlMm0wdW5qcjNnNGZyMCIsInN1YiI6InN1cGVyX2FkbWluIn0.TGj3CroLq7A7sVaDPNHfw8VszzwLoGFyOpN1CEK-vNw
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "generate_blur",
+    "data": {
+        "client_info": {
+            "shop_name":"inflow-test-store-loi.myshopify.com",
+            "token":"shpua_5f34282642afc3470bffc19f94b092ab"
+        }
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaUdvbiIsImNpZCI6IiIsImF1ZCI6InN1cGVyX2FkbWluIiwiaXNzIjoiY2c1Z3AzdWpudnZiMGtucDM5MDAifQ.Rq3dCNllp4elGjMEfmRT_eeCmHLXOlgLjQp2rEgMcl4
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "shopify_create_webhooks",
+    "data": {
+        "location_id": "87929717049",
+        "client_info": {
+            "shop_name":"inflow-test-store-loi.myshopify.com",
+            "token":"shpua_5f34282642afc3470bffc19f94b092ab"
+        }
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaWdvbiIsImNpZCI6IiIsImN0eXBlIjoiYnV5ZXIiLCJhdWQiOiJzdXBlcl9hZG1pbiIsImlzcyI6ImNsNHI4am9sdXJ1dG5xNmkybGZnIiwic3ViIjoic3VwZXJfYWRtaW4ifQ.S_OQiJmaQ3xc_Hmq6GaTGuq34YNr_vW6-CuohlYktdo
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "inquiry_remind_admin",
+    "data": {
+        
+    }
+}
+
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaWdvbiIsImNpZCI6IiIsImN0eXBlIjoiYnV5ZXIiLCJhdWQiOiJzdXBlcl9hZG1pbiIsImlzcyI6ImNsNHI4am9sdXJ1dG5xNmkybGZnIiwic3ViIjoic3VwZXJfYWRtaW4ifQ.S_OQiJmaQ3xc_Hmq6GaTGuq34YNr_vW6-CuohlYktdo
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "generate_pdf",
+    "data": {
+        "url":"https://dev-admin.joininflow.io/invoices/print/7",
+        "selector":"#invoice-ready-to-print",
+        "file_name": "test_jwt"
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwiYXVkIjoic3VwZXJfYWRtaW4iLCJpc3MiOiJjbXM4MHBmOGYzamg2YWI2bW5jMCIsInN1YiI6InN1cGVyX2FkbWluIn0.pPEXP5t__mekw65SANTjXu7jRZCJAq7rZJBWDJYvksU
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "generate_pdf",
+    "data": {
+        "url":"https://dev-admin.joininflow.io/bulks/cmsjqb5cr39joiu4h96g/commercial-invoice",
+        "selector":"#commercial-invoice-ready-to-print",
+        "file_name": "commercial-invoice"
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwiYXVkIjoic3VwZXJfYWRtaW4iLCJpc3MiOiJjbXM4MHBmOGYzamg2YWI2bW5jMCIsInN1YiI6InN1cGVyX2FkbWluIn0.pPEXP5t__mekw65SANTjXu7jRZCJAq7rZJBWDJYvksU
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "generate_pdf",
+    "data": {
+        "url":"https://dev-admin.joininflow.io/bulks/cmsjqb5cr39joiu4h96g/order-closing",
+        "selector":"#order-closing-ready-to-print",
+        "file_name": "order-closing"
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaWdvbiIsImNpZCI6IiIsImN0eXBlIjoiYnV5ZXIiLCJhdWQiOiJzdXBlcl9hZG1pbiIsImlzcyI6ImNsNHI4am9sdXJ1dG5xNmkybGZnIiwic3ViIjoic3VwZXJfYWRtaW4ifQ.S_OQiJmaQ3xc_Hmq6GaTGuq34YNr_vW6-CuohlYktdo
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "create_po_payment_invoice",
+    "data": {
+        "purchase_order_id":"clrdierb2hjc6991ui40",
+        "re_create": true
+    }
+}
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwiYXVkIjoic3VwZXJfYWRtaW4iLCJpc3MiOiJjbXM4MHBmOGYzamg2YWI2bW5jMCIsInN1YiI6InN1cGVyX2FkbWluIn0.pPEXP5t__mekw65SANTjXu7jRZCJAq7rZJBWDJYvksU
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "create_bulk_po_final_payment_invoice",
+    "data": {
+        "bulk_purchase_order_id":"co2d4niolqn9ijh9c7rg",
+        "re_create": true
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaWdvbiIsImNpZCI6IiIsImN0eXBlIjoiYnV5ZXIiLCJhdWQiOiJzdXBlcl9hZG1pbiIsImlzcyI6ImNsNHI4am9sdXJ1dG5xNmkybGZnIiwic3ViIjoic3VwZXJfYWRtaW4ifQ.S_OQiJmaQ3xc_Hmq6GaTGuq34YNr_vW6-CuohlYktdo
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "create_bulk_po_first_payment_invoice",
+    "data": {
+        "bulk_purchase_order_id":"clresfjb2hj6qtuujjtg",
+        "re_create": true
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwiYXVkIjoic3VwZXJfYWRtaW4iLCJpc3MiOiJjbXM4MHBmOGYzamg2YWI2bW5jMCIsInN1YiI6InN1cGVyX2FkbWluIn0.pPEXP5t__mekw65SANTjXu7jRZCJAq7rZJBWDJYvksU
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "create_bulk_po_attachment_pdfs",
+    "data": {
+        "bulk_purchase_order_id":"cmsjqb5cr39joiu4h96g",
+        "re_create": true
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaWdvbiIsImNpZCI6IiIsImN0eXBlIjoiYnV5ZXIiLCJhdWQiOiJzdXBlcl9hZG1pbiIsImlzcyI6ImNsNHI4am9sdXJ1dG5xNmkybGZnIiwic3ViIjoic3VwZXJfYWRtaW4ifQ.S_OQiJmaQ3xc_Hmq6GaTGuq34YNr_vW6-CuohlYktdo
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "create_po_payment_invoice_for_multiple_items",
+    "data": {
+        "checkout_session_id":"CK-UIFC-75650",
+        "re_create": true
+    }
+}
+
+### Dispatch task
+POST https://dev-api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNnNWFucjJsbGttNmN0cHZxOGswIiwidHoiOiJBc2lhL1NhaWdvbiIsImF1ZCI6InN1cGVyX2FkbWluIiwiaXNzIjoiY201cTBmamIyaGpkcTNxamUxZGciLCJzdWIiOiJzdXBlcl9hZG1pbiJ9.voshSS-U_RsH1gp5M7_3Ehl14hsOL9qxL9PWJM89tOA
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "send_push_to_user",
+    "data": {
+        "user_id":"cg5anr2llkm6ctpvq8k0",
+        "notification_type": "custom",
+        "notification_title": "Loi test2",
+        "notification_message": "Loi2"
+    }
+}

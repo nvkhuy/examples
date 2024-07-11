@@ -1,0 +1,43 @@
+package enums
+
+type BulkPoTrackingAction string
+
+var (
+	BulkPoTrackingActionSubmitOrder             BulkPoTrackingAction = "submit_order"
+	BulkPoTrackingActionSubmitQuotation         BulkPoTrackingAction = "submit_quotation"
+	BulkPoTrackingActionMakeFirstPayment        BulkPoTrackingAction = "make_first_payment"
+	BulkPoTrackingActionMakeFinalPayment        BulkPoTrackingAction = "make_final_payment"
+	BulkPoTrackingActionCreateQcReport          BulkPoTrackingAction = "create_qc_report"
+	BulkPoTrackingActionUpdateMaterial          BulkPoTrackingAction = "update_raw_material"
+	BulkPoTrackingActionMarkProduction          BulkPoTrackingAction = "mark_production"
+	BulkPoTrackingActionUpdateProduction        BulkPoTrackingAction = "update_production"
+	BulkPoTrackingActionMarkPps                 BulkPoTrackingAction = "mark_pps"
+	BulkPoTrackingActionUpdatePps               BulkPoTrackingAction = "update_pps"
+	BulkPoTrackingActionMarkQc                  BulkPoTrackingAction = "mark_qc"
+	BulkPoTrackingActionMarkFinalPayment        BulkPoTrackingAction = "mark_final_payment"
+	BulkPoTrackingActionBuyerApproveRawMaterial BulkPoTrackingAction = "buyer_approve_raw_material"
+	BulkPoTrackingActionBuyerApproveQc          BulkPoTrackingAction = "buyer_approve_qc"
+	BulkPoTrackingActionConfirmDelivered        BulkPoTrackingAction = "confirm_delivered"
+	BulkPoTrackingActionDelivered               BulkPoTrackingAction = "delivered"
+	BulkPoTrackingActionMarkDelivering          BulkPoTrackingAction = "mark_delivering"
+	BulkPoTrackingActionMarkRawMaterial         BulkPoTrackingAction = "mark_raw_material"
+	BulkPoTrackingActionFirstPaymentConfirmed   BulkPoTrackingAction = "first_payment_confirmed"
+	BulkPoTrackingActionFinalPaymentConfirmed   BulkPoTrackingAction = "final_payment_confirmed"
+	BulkPoTrackingActionFirstPaymentDenied      BulkPoTrackingAction = "first_payment_denied"
+	BulkPoTrackingActionFinalPaymentDenied      BulkPoTrackingAction = "final_payment_denied"
+	BulkPoTrackingActionStageComment            BulkPoTrackingAction = "stage_comment"
+
+	BulkPoTrackingActionAdminApproveSellerQuotation BulkPoTrackingAction = "admin_approve_seller_quotation"
+	BulkPoTrackingActionAdminRejectSellerQuotation  BulkPoTrackingAction = "admin_reject_seller_quotation"
+	BulkPoTrackingActionSellerSubmitQuotation       BulkPoTrackingAction = "seller_submit_quotation"
+	BulkPoTrackingActionSellerReSubmitQuotation     BulkPoTrackingAction = "seller_re_submit_quotation"
+	BulkPoTrackingActionSellerApproveQuotation      BulkPoTrackingAction = "seller_approve_quotation"
+	BulkPoTrackingActionSellerRejectQuotationn      BulkPoTrackingAction = "seller_reject_quotation"
+	BulkPoTrackingActionSellerDelivering            BulkPoTrackingAction = "seller_delivering"
+	BulkPoTrackingActionSellerApprovePO             BulkPoTrackingAction = "seller_approve_po"
+	BulkPoTrackingActionSellerRejectPO              BulkPoTrackingAction = "seller_reject_po"
+	BulkPoTrackingActionSellerMarkProduction        BulkPoTrackingAction = "seller_mark_production"
+	BulkPoTrackingActionSellerMarkRawMaterial       BulkPoTrackingAction = "seller_mark_raw_material"
+	BulkPoTrackingActionSellerMarkInspection        BulkPoTrackingAction = "seller_mark_inspection"
+	BulkPoTrackingActionSellerUpdatePps             BulkPoTrackingAction = "seller_update_pps"
+)

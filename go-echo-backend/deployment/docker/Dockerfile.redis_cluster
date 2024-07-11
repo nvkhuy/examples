@@ -1,0 +1,2 @@
+ARG redis_version=6.2.4
+FROM grokzen/redis-cluster:6.2.4

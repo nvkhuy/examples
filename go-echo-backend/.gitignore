@@ -1,0 +1,111 @@
+logs/
+dist/
+
+.DS_Store
+*.backup
+*.info
+/.terraform
+/ssm_parameter.tf
+*.pem
+
+# Local .terraform directories
+**/.terraform/*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files, which are likely to contain sensitive data, such as
+# password, private keys, and other secrets. These should not be part of version
+# control as they are data points which are potentially sensitive and subject
+# to change depending on the environment.
+*.tfvars.json
+
+# Ignore override files as they are usually used to override resources locally and so
+# are not checked in
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Include override files you do wish to add to version control using negated pattern
+# !example_override.tf
+
+# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
+# example: *tfplan*
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+
+deployment/tf/modules/**/*.zip
+deployment/tf/.terraform/*
+deployment/tf/.terraform.lock.hcl
+*.tfstate
+
+ssm_parameter.tf
+*vars.sensitive.tf
+
+env.*.json
+env.json
+*secrets.env
+*s3.env
+
+.terraform.lock.hcl
+
+inflow_dev-client-*.conf
+inflow_*-client-*.conf
+
+/node_modules
+node_modules
+deployment/tf/modules/cdn/handler/node_modules
+*document-signing*
+
+db_backup
+
+tmpdir
+tmp
+tmpdir/*
+
+inflow-a95c9-firebase-adminsdk-i0a8s-29eaa39031.json
+
+node_modules
+ffmpeg.zip
+
+imageproxy/.env
+deployment/config/**/.env
+deployment/config/**/.json
+
+/dist
+
+.aws-sam
+
+deployment/tf/modules/lambda/**/.env
+deployment/tf/modules/lambda/classify/.onnx
+
+/.idea
+
+*.env
+
+tests/*.jpeg
+tests/*.png
+tests/*.pdf
+tests/*.pdf
+tests/.env
+tests/*.json
+tests/*.xlsx
+tests/*.jpg
+
+tests/lovebonito*
+tests/lovebonito_aug
+
+tests/QR_Code_Label_611-613.zip
+tests/QR_Code_Label_611-613/
+
+tests/QR_Code_Label_611-612-613_LBHK.zip
+tests/QR_Code_Label_611-612-613_LBHK/
+tests/QR_Code_Label_611-612-613_LBID.zip
+tests/QR_Code_Label_611-612-613_LBID/
+tests/QR_Code_Label_611-612-613_LBMY.zip
+tests/QR_Code_Label_611-612-613_LBMY/
+tests/files

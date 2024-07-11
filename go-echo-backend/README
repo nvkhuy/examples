@@ -1,0 +1,24 @@
+# Inflow Backend
+
+## Prerequisites
+
+You must have the following installed:
+
+- [Golang 1.19](https://go.dev/)
+
+## Environment variables
+
+- deployment/config/dev/.env
+- deployment/config/prod/.env
+
+## Local Development
+Run service
+```bash
+    task app:dev --summary
+```
+## Deployment
+There are 2 ways to deploy
+1/ Manually run this command: make update-service env=dev service=backend
+1/ Use GIT commit message pattern: For ex, to deploy the backend service in your commit message must contain "deploy:backend"
+
+[![Deploy Service](https://github.com/engineeringinflow/inflow-backend/actions/workflows/dev.yml/badge.svg)](https://github.com/engineeringinflow/inflow-backend/actions/workflows/dev.yml)

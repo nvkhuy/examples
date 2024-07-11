@@ -1,0 +1,80 @@
+### Dispatch task
+POST https://api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNqY3ZtaDRwcmY4dDA5OHJiZnYwIiwiYXVkIjoic3VwZXJfYWRtaW4iLCJpc3MiOiJjcDIyMGpiMXJjOHA3czFqaThhMCIsInN1YiI6InN1cGVyX2FkbWluIn0.HK752Rq8FXO8nIBnNtAzhTISUQBTMCMgrkx7ovRTsZU
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "generate_blur"
+}
+### Dispatch task
+POST https://api.joininflow.io/api/v1/admin/task/dispatch
+accept: application/json
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNqY3ZtaDRwcmY4dDA5OHJiZnYwIiwidHoiOiJBc2lhL1NhaWdvbiIsImNpZCI6IiIsImN0eXBlIjoiYnV5ZXIiLCJhdWQiOiJzdXBlcl9hZG1pbiIsImlzcyI6ImNqY3Z0dDRwcmY4dDA5OHJiZnZnIiwic3ViIjoic3VwZXJfYWRtaW4ifQ.8E2Teoqy5PgFlyh5MllYBZD3QC6OIKNr4mc1Xt6ulYY
+
+{
+  "name":"track_customerio",
+  "data": {
+    "user_id": "cksdp99ma4ja0vmp2gq0",
+    "event": "admin_invite_new_user",
+    "data": {
+      "email": "duongvi@joininflow.io",
+      "first_name": "Duong ",
+      "last_name": "Vi",
+      "link": "https://admin.joininflow.io/reset-password?email=duongvi%40joininflow.io&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNrc2RwOTltYTRqYTB2bXAyZ3EwIiwidHoiOiIiLCJjaWQiOiIiLCJjdHlwZSI6IiIsImF1ZCI6InN0YWZmIiwiZXhwIjoxNjk4MjI4OTE3fQ.9Blvw7ZMxLBLOXnNrok1WaFUUdVWEnMewyP_i-2BX9w",
+      "role": "staff",
+      "role_display": "Staff",
+      "team": "operator",
+      "team_display": "Operator"
+    }
+  }
+}
+
+
+### Dispatch task
+GET https://api.joininflow.io/api/v1/buyer/me
+accept: application/json
+Content-Type: application/json
+Authorization: Bearer eyJpZCI6ImNrdm5kMWM0N2lvZXFuY2lwcmQwIiwidHoiOiJBdXN0cmFsaWEvUGVydGgiLCJjaWQiOiIiLCJjdHlwZSI6ImJ1eWVyIiwiYXVkIjoiY2xpZW50IiwiaXNzIjoiZ2hvc3QiLCJzdWIiOiJjbGllbnQifQ.D6V3UaRVsnKeocGZ7hGrmddl8hwLkeG6iH57n8N8lT8
+
+{}
+
+### Dispatch task
+POST https://api.joininflow.io/api/v1/buyer/bulk_purchase_orders/clg856s6u0ua4o9r84fg/submit
+accept: application/json
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNrdm5kMWM0N2lvZXFuY2lwcmQwIiwidHoiOiJBdXN0cmFsaWEvUGVydGgiLCJjaWQiOiIiLCJjdHlwZSI6ImJ1eWVyIiwiYXVkIjoiY2xpZW50IiwiaXNzIjoiZ2hvc3QiLCJzdWIiOiJjbGllbnQifQ.D6V3UaRVsnKeocGZ7hGrmddl8hwLkeG6iH57n8N8lT8
+
+{}
+
+
+
+
+### Dispatch task
+POST https://api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNqY3ZtaDRwcmY4dDA5OHJiZnYwIiwidHoiOiJBc2lhL1NhaWdvbiIsImF1ZCI6InN1cGVyX2FkbWluIiwiaXNzIjoiY2w0cWN1OGM0ZmFibzdxMmUxYjAiLCJzdWIiOiJzdXBlcl9hZG1pbiJ9.dzN8f5OFml_1BdinQTZaXiYI2aFqDf6YSvPUGpmQU0s
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "create_po_payment_invoice_for_multiple_items",
+    "data": {
+        "checkout_session_id":"CK-SAWF-99704",
+        "re_create": true
+    }
+}
+
+### Dispatch task
+POST https://api.joininflow.io/api/v1/admin/task/dispatch
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNqY3ZtaDRwcmY4dDA5OHJiZnYwIiwidHoiOiJBc2lhL1NhaWdvbiIsImF1ZCI6InN1cGVyX2FkbWluIiwiaXNzIjoiY2w0cWN1OGM0ZmFibzdxMmUxYjAiLCJzdWIiOiJzdXBlcl9hZG1pbiJ9.dzN8f5OFml_1BdinQTZaXiYI2aFqDf6YSvPUGpmQU0s
+accept: application/json
+Content-Type: application/json
+
+{
+    "name": "create_po_payment_invoice",
+    "data": {
+        "purchase_order_id":"cliougb2bgtm1ca5ukk0",
+        "re_create": true
+    }
+}

@@ -1,0 +1,15 @@
+FROM --platform=linux/amd64 appleboy/gorush:linux-amd64
+ARG ENV=
+ARG GORUSH_CORE_QUEUE_NUM
+
+ENV GOOS=linux
+ENV GOARCH=amd64
+ENV ENV=${ENV}
+ENV GORUSH_CORE_QUEUE_NUM=${GORUSH_CORE_QUEUE_NUM}
+
+COPY deployment/config/$ENV/gorush.yml /config.yml
+
+
+
+
+

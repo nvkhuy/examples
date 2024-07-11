@@ -1,0 +1,5 @@
+ARG ALPINE_VERSION=3.19
+FROM --platform=linux/amd64 alpine:${ALPINE_VERSION}
+RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add tzdata
+RUN apk --no-cache add curl jq

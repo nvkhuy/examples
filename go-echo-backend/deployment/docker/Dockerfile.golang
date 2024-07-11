@@ -1,0 +1,10 @@
+ARG GOLANG_VERSION=1.21
+FROM --platform=linux/amd64 golang:${GOLANG_VERSION}-bullseye as builder
+
+RUN DEBIAN_FRONTEND=noninteractive \
+  apt-get update && \
+  apt-get install --no-install-recommends -y \
+  ca-certificates \
+  automake build-essential curl jq git
+
+RUN go install github.com/thaitanloi365/govvv@v0.3.0

@@ -1,0 +1,32 @@
+g2, /*, super_group
+p, super_admin, super_group, /*
+p, client, super_group, /*
+p, leader:dev, super_group, /*
+p, staff:dev, super_group, /*
+
+g2, /sales/*, lead_sales_group
+p, leader:sales, lead_sales_group, /*
+p, staff:sales, lead_sales_group, GET
+
+g2, /sales/write-but-for-staff, staff_sales_write_group
+p, staff:sales, staff_sales_write_group, PUT
+p, staff:sales, staff_sales_write_group, PATCH
+
+g2, /blog/*, marketing_group
+p, leader:marketing, marketing_group, /*
+p, staff:marketing, marketing_group, GET
+
+p, leader:operator, super_group, GET
+p, staff:operator, super_group, GET
+
+g2, /settings/*, lead_operator_write_group
+p, leader:operator, lead_operator_write_group, /*
+
+g2, /api/v1/admin/notifications, all_read_group
+g2, /api/v1/admin/notifications/*, all_read_group
+p, *, all_read_group, GET
+p, *, all_read_group, OPTIONS
+
+g2, /api/v1/admin/me/track_activity, all_write_group
+g2, /api/v1/admin/me/track_activity/*, all_write_group
+p, *, all_write_group, /*

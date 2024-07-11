@@ -1,0 +1,80 @@
+name: Deploy Prod Services
+
+on:
+  push:
+    branches: 
+      - prod
+
+  pull_request:
+    branches:
+      - prod
+    types:
+      - closed
+
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service name'
+        required: true
+        type: choice
+        options:
+        - backend
+        - consumer
+        - all
+
+jobs:
+  build:
+    name: Deployment
+    runs-on: ubuntu-latest
+    environment: PROD
+    if: contains(github.event.head_commit.message, 'deploy:backend') || contains(github.event.head_commit.message, 'deploy:consumer') || contains(github.event.head_commit.message, 'deploy:all') || contains(github.event.inputs.service,'backend') || contains(github.event.inputs.service,'consumer') || contains(github.event.inputs.service,'all') || github.event.pull_request.merged
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+    
+    - name: Install Task
+      uses: arduino/setup-task@v1
+      with:
+        version: 3.x
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Add profile credentials to ~/.aws/credentials 
+      run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }} --profile ${{ secrets.AWS_PROFILE }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }} --profile ${{ secrets.AWS_PROFILE }}
+
+    - name: Get env
+      run: |
+        task setup-env-dir ENV=prod
+        task aws:secretsmanager:get ENV=prod AWS_PROFILE=${{ secrets.AWS_PROFILE }} AWS_REGION=${{ secrets.AWS_REGION }} SECRET_ID=${{ secrets.AWS_ENV_SECRET_ID }} -y
+
+    - name: Release sevice backend
+      if: contains(github.event.head_commit.message, 'deploy:backend') || contains(github.event.inputs.service,'backend') || contains(github.event.head_commit.message, 'deploy:all') || contains(github.event.inputs.service,'all') || github.event.pull_request.merged
+      run: |
+        task app:deploy ENV=prod SERVICES=backend -y
+    
+    - name: Release sevice consumer
+      if: contains(github.event.head_commit.message, 'deploy:consumer') || contains(github.event.inputs.service,'consumer') || contains(github.event.head_commit.message, 'deploy:all') || contains(github.event.inputs.service,'all') || github.event.pull_request.merged
+      run: |
+        task app:deploy ENV=prod SERVICES=consumer -y
+
+
+    - name: Slack Notification
+      uses: rtCamp/action-slack-notify@v2
+      if: always()
+      env:
+        SLACK_USERNAME: "Loi's Bot"
+        SLACK_COLOR: ${{ job.status }}
+        SLACK_WEBHOOK: https://hooks.slack.com/services/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
+        SLACK_ICON: https://i.ibb.co/RzPDVb1/inflow.png
+        SLACK_TITLE: "Inflow Prod deployment"
+
+
+

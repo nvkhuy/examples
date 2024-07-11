@@ -1,0 +1,8 @@
+ARG GOLANG_VERSION=1.21
+FROM --platform=linux/amd64 golang:${GOLANG_VERSION}-alpine as builder
+
+LABEL maintainer="Thai Tan Loi <thaitanloi365@gmail.com>"
+
+RUN apk update && apk add --no-cache git
+
+RUN go install github.com/thaitanloi365/govvv@v0.3.0
