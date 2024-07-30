@@ -19,7 +19,7 @@ $ go run consumer/main.go -brokers="127.0.0.1:29091" -topics="sarama" -group="ex
 ### Start Producer
 
 ```bash
-$ go run producer/main.go -brokers="127.0.0.1:29091" -topic "sarama" -producers 2 -records-number 5
+$ go run producer/main.go -brokers="127.0.0.1:29091" -topic "sarama" -producers 1 -records-number 4
 ```
 
 ### Example Context
